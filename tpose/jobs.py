@@ -313,14 +313,24 @@ def _run_job(job_id: str, input_path: str, tail_ref_path: Optional[str], seed: i
 
         # 毛色の自動推定(rembg はCPU処理なのでGPUロック取得前に行う)。
         # 用途は2つ: (1) 爪抑制文("each toe is <毛色> fur right to the tip")、
-        # (2) **背面ビューの後頭部が黒髪になる問題の対策**("the back of the head is
+        # (2) 背面ビューの後頭部が黒髪になる問題の対策("the back of the head is
         # covered in <毛色> fur" / 中立では "... the same <毛色> color as the front")。
-        # (2) は中立モードでも必要なので、**human 以外なら常に推定する**
-        # (当初 animal 限定にしていたため、既定の中立で対策文が付かず髪が出続けた)。
+        #
+        # **自動推定は animal のときだけ使う**(2026-07-28修正、ユーザー報告
+        # 「何も指定しないと髪型は維持されるが後ろだけ白くなる」):
+        # sample_fur_color() は被写体全体の**低彩度画素**の中央値を毛色とみなす。
+        # ぬいぐるみ(全身が毛)では妥当だが、**服や肌が低彩度な人物キャラでは誤推定**する。
+        # 実測: 茶髪+白Tシャツのアニメキャラ -> "cream white" と推定 -> 背面プロンプトが
+        # 「後頭部は cream white」になり、**後頭部だけ白くなる**(サーバが自分で
+        # 白くしていた)。頭部だけを測る案も検証したが、帽子・アクセサリを拾って
+        # 不安定だった(momo は上10%が帽子の赤、上記キャラは上15%以上で肌が混ざり pink)
+        # ため、**推定は毛で覆われた被写体(animal)に限定**する。
+        # 中立/人物で後頭部の色を固定したい場合は fur_color を明示指定する
+        # (明示値は従来どおり中立でも使われる)。
         fur_color = (params.get("fur_color") or "").strip()
         if not fur_color and resolve_subject(
                 params.get("subject", "auto"),
-                params.get("paw_pads", "auto")) != "human":
+                params.get("paw_pads", "auto")) == "animal":
             fur_color = generate_mod.sample_fur_color(processed)
             _update_job(job_id, fur_color_detected=fur_color)
 

@@ -502,9 +502,24 @@ BODY_PRESETS = [
 #     (中央値 148)。
 # つまり効果の強さは文言次第で、**強い指示は同一性も動かす**。既定は無効(空文字)にし、
 # 文言はユーザーに委ねる(プリセットは用意しない: 望ましい色は用途ごとに違うため)。
-_RECOLOR_KEEP = (
-    "keep the pose, composition, design and background exactly the same, "
-    "plain white background, full body visible from head to toe"
+# 2026-07-28修正(ユーザー指摘「髪色を変えると髪型まで変わる」):
+# 旧実装は `"{指示}, keep the pose, composition, design and background exactly the
+# same, plain white background, full body visible from head to toe"` だった。
+# Qwen-Image-Edit は本来「一部だけ変えて他は維持する」のが得意なのに、この文には
+# **部分編集を壊す要素が3つ**あった:
+#   1. `design ... exactly the same` が指示そのものと矛盾する(「髪を黒く」は
+#      デザイン変更)。矛盾したプロンプトを与えると、モデルは折り合いをつけるために
+#      対象領域を作り直す = 髪型ごと変わる。
+#   2. `plain white background, full body visible from head to toe` は**1パス目
+#      (Tポーズ生成)用の構図指示**であり、2パス目に持ち込むと「全身を描き直す」
+#      方向へ働く(部分編集ではなく再生成に寄る)。
+#   3. **語順**: このファイル冒頭の実測どおり「末尾の1文が最も強く効く」のに、
+#      末尾を keep 文が占め、ユーザーの指示が最も弱い先頭に置かれていた。
+# そこで keep 文を**前置き**にして短くし(維持したいのはポーズ・画角・背景だけ)、
+# **ユーザーの指示を末尾**へ置く。"design" と全身フレーミングの語は落とす。
+_EDIT_KEEP_PREFIX = (
+    "Keep the same pose, camera angle, framing and background, and keep every "
+    "other detail of the character unchanged. Change only this: "
 )
 
 
@@ -512,11 +527,12 @@ def build_edit_prompt(instruction: str, keep_pose: bool = True) -> str:
     """生成済みビューへ追加でかける Edit のプロンプトを組み立てる。
 
     色調整だけでなく汎用の修正指示に使える(「帽子を外す」「服を赤くする」等)。
-    keep_pose=True(既定)なら「ポーズ・構図・デザイン・背景は変えない」を付け、
-    Tポーズと白背景・画角を保つ。False なら指示文だけを渡す(構図ごと変えたい場合)。
+    keep_pose=True(既定)なら「ポーズ・画角・背景と、それ以外の細部は変えない」を
+    **前置き**し、指示文を末尾に置く(上のコメント参照)。False なら指示文だけを渡す
+    (構図ごと変えたい場合)。
     """
     instruction = instruction.strip()
-    return f"{instruction}, {_RECOLOR_KEEP}" if keep_pose else instruction
+    return f"{_EDIT_KEEP_PREFIX}{instruction}" if keep_pose else instruction
 
 
 def build_recolor_prompt(recolor: str) -> str:
