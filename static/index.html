@@ -183,13 +183,24 @@
                 ポーズ・構図・背景を維持する
               </label>
             </div>
+            <fieldset id="tp-edit-view-fieldset"
+                      style="border:1px solid #444; border-radius:6px; padding:6px 10px; margin-top:8px;">
+              <legend>対象ビュー(チェックしたものだけ編集)</legend>
+              <div id="tp-edit-view-checkboxes" class="form-grid"></div>
+              <div class="view-tile-actions" style="justify-content:flex-start; padding:4px 0 0;">
+                <button type="button" class="tiny-btn secondary" id="tp-edit-select-all-btn">全て選択</button>
+                <button type="button" class="tiny-btn secondary" id="tp-edit-select-none-btn">全て解除</button>
+              </div>
+            </fieldset>
             <div class="view-tile-actions" style="justify-content:flex-start; padding:8px 0 0;">
+              <button type="button" class="tiny-btn" id="tp-edit-btn">選択したビューに適用</button>
               <button type="button" class="tiny-btn" id="tp-edit-all-btn">全ビューに適用</button>
-              <button type="button" class="tiny-btn secondary" id="tp-undo-btn">直前の編集を取り消す</button>
+              <button type="button" class="tiny-btn secondary" id="tp-undo-btn">選択したビューの編集を取り消す</button>
             </div>
             <p class="form-hint" style="margin-top:6px;">
-              色調整だけでなく汎用の修正に使えます(「帽子を外す」等)。各タイルの
-              「このビューを編集」で1枚だけ適用も可能で、1世代分だけ元に戻せます。
+              色調整だけでなく汎用の修正に使えます(「帽子を外す」等)。
+              <strong>4枚のうち一部だけ直したいときは「対象ビュー」で選んで「選択したビューに適用」</strong>
+              (各タイルの「このビューを編集」でも1枚だけ適用できます)。編集は1世代分だけ元に戻せます。
               <strong>強い指示は毛色や造形も動かします</strong>(実測: 暖色化の指示で毛色が黄褐色へ寄り爪が復活)。
               背景透過版があるビューは編集後に作り直します。
             </p>

@@ -270,7 +270,11 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const editInput = document.getElementById("tp-edit-input");
   const editSeed = document.getElementById("tp-edit-seed");
   const editKeepPose = document.getElementById("tp-edit-keeppose");
+  const editBtn = document.getElementById("tp-edit-btn");
   const editAllBtn = document.getElementById("tp-edit-all-btn");
+  const editViewsEl = document.getElementById("tp-edit-view-checkboxes");
+  const editSelectAllBtn = document.getElementById("tp-edit-select-all-btn");
+  const editSelectNoneBtn = document.getElementById("tp-edit-select-none-btn");
   const undoBtn = document.getElementById("tp-undo-btn");
   const editError = document.getElementById("tp-edit-error");
   const palmsInput = document.getElementById("tp-palms-input");
@@ -414,6 +418,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   }
 
   function renderViews(views) {
+    tpSyncEditViewChoices(views);
     for (const v of views) {
       const t = tpTiles.get(v.key) || tpCreateTile(v);
       t.status.textContent = TP_STATUS_TEXT[v.status] || v.status;
@@ -453,6 +458,38 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   function tpResetTiles() {
     for (const [, t] of tpTiles) t.tile.remove();
     tpTiles.clear();
+    editViewsEl.innerHTML = "";
+    editViewKeys = "";
+  }
+
+  // --- 編集の対象ビュー選択(生成したビューのぶんだけチェックボックスを作る) ---
+  // ジョブのビュー構成が変わったときだけ作り直す(毎回作り直すとポーリングのたびに
+  // チェック状態がリセットされてしまうため)。
+  let editViewKeys = "";
+
+  function tpSyncEditViewChoices(views) {
+    const signature = views.map((v) => v.key).join(",");
+    if (signature === editViewKeys) return;
+    editViewKeys = signature;
+    editViewsEl.innerHTML = "";
+    for (const v of views) {
+      const label = document.createElement("label");
+      label.style.fontWeight = "normal";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = true;
+      cb.value = v.key;
+      cb.className = "tp-edit-view-cb";
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(` ${v.label_ja}`));
+      editViewsEl.appendChild(label);
+    }
+  }
+
+  function tpSelectedEditViews() {
+    return Array.from(document.querySelectorAll(".tp-edit-view-cb"))
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.value);
   }
 
   // --- 生成後の編集(何度でも適用できる汎用Edit)。/edit と /undo を叩く ---
@@ -472,7 +509,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     fd.append("keep_pose", editKeepPose.checked ? "true" : "false");
     if (keys && keys.length) fd.append("views", keys.join(","));
     busy = true;
-    editAllBtn.disabled = true;
+    tpSetEditButtonsDisabled(true);
     showStatus("編集中...");
     try {
       const resp = await fetch(`/api/tpose/jobs/${currentJobId}/edit`, { method: "POST", body: fd });
@@ -484,10 +521,15 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
       pollJob(currentJobId);
     } catch (err) {
       busy = false;
-      editAllBtn.disabled = false;
+      tpSetEditButtonsDisabled(false);
       showStatus("");
       showEditError(err.message);
     }
+  }
+
+  function tpSetEditButtonsDisabled(disabled) {
+    editBtn.disabled = disabled;
+    editAllBtn.disabled = disabled;
   }
 
   async function applyUndo(keys) {
@@ -507,8 +549,25 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     }
   }
 
+  // 「選択したビューに適用」は対象ビューのチェックボックスに従う。
+  // 「全ビューに適用」は選択状態に関わらず全ビュー(サーバ側で views 省略 = 全部)。
+  editBtn.addEventListener("click", () => {
+    const keys = tpSelectedEditViews();
+    if (!keys.length) { showEditError("対象ビューを1つ以上選んでください"); return; }
+    applyEdit(keys);
+  });
   editAllBtn.addEventListener("click", () => applyEdit([]));
-  undoBtn.addEventListener("click", () => applyUndo([]));
+  undoBtn.addEventListener("click", () => {
+    const keys = tpSelectedEditViews();
+    if (!keys.length) { showEditError("対象ビューを1つ以上選んでください"); return; }
+    applyUndo(keys);
+  });
+  editSelectAllBtn.addEventListener("click", () => {
+    document.querySelectorAll(".tp-edit-view-cb").forEach((cb) => { cb.checked = true; });
+  });
+  editSelectNoneBtn.addEventListener("click", () => {
+    document.querySelectorAll(".tp-edit-view-cb").forEach((cb) => { cb.checked = false; });
+  });
 
   async function pollJob(jobId) {
     try {
@@ -544,7 +603,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
       pollTimer = null;
       busy = false;
       generateBtn.disabled = false;
-      editAllBtn.disabled = false;
+      tpSetEditButtonsDisabled(false);
       editBox.classList.remove("hidden");
       progressWrap.classList.add("hidden");
       if (job.status === "done") {
