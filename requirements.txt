@@ -1,0 +1,38 @@
+# tpose-server — requirements
+#
+# 既定の運用は diffusers-server の venv を共有すること(run.sh 参照)。
+# この一覧は「独立した環境を作る場合」の参考。
+#
+# NOTE: diffusers は PyPI のリリース版ではなく git 版が必要
+#   pip install "git+https://github.com/huggingface/diffusers"
+# PyTorch は CUDA バージョンに合わせて別途インストールすること
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# --- Core ML / diffusion stack ---
+# diffusers>=0.40.0.dev0 (git 版が必要、上記 NOTE 参照)
+transformers>=5.1.0
+accelerate>=1.12.0
+safetensors>=0.8.0
+huggingface_hub>=1.23.0
+peft>=0.18.0
+gguf>=0.17.1            # DS_QUANT=gguf-q4_k_m を使う場合のみ
+sentencepiece>=0.2.1
+einops>=0.8.1
+
+# torch / torchvision: 別途インストール
+# (検証環境: torch==2.9.0, torchvision==0.24.0, CUDA 12.8 build)
+
+# --- Web server ---
+fastapi>=0.104.1
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+
+# --- Image processing ---
+pillow>=10.4.0
+numpy>=2.2.6
+scipy>=1.16.3           # 背景透過の後処理(穴埋め・連結成分)
+opencv-python-headless>=4.12.0   # anime-segmentation の前処理
+
+# --- 背景除去 ---
+rembg>=2.0.67           # method="rembg"(汎用)
+onnxruntime>=1.20.0     # method="anime"(skytnt/anime-seg の isnetis.onnx)
