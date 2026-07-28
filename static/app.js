@@ -282,6 +282,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const tailPreset = document.getElementById("tp-tail-preset");
   const tailInput = document.getElementById("tp-tail-input");
   const bodyInput = document.getElementById("tp-body-input");
+  const costumeInput = document.getElementById("tp-costume-input");
   const bodyPreset = document.getElementById("tp-body-preset");
   const extraInput = document.getElementById("tp-extra-input");
   const generateBtn = document.getElementById("tp-generate-btn");
@@ -647,6 +648,10 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     // 自由記述があればプリセットより優先
     const bodyValue = (bodyInput.value || "").trim() || bodyPreset.value || "";
     if (bodyValue) fd.append("body", bodyValue);
+    // 衣装の背面の見え方(背面ビューにのみ効く)
+    if (costumeInput && (costumeInput.value || "").trim()) {
+      fd.append("costume", costumeInput.value.trim());
+    }
     if ((extraInput.value || "").trim()) fd.append("extra_prompt", extraInput.value.trim());
     if (tailRefInput && tailRefInput.files && tailRefInput.files.length > 0) {
       fd.append("tail_ref", tailRefInput.files[0]);

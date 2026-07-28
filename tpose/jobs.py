@@ -360,6 +360,7 @@ def _run_job(job_id: str, input_path: str, tail_ref_path: Optional[str], seed: i
                 fur_color=fur_color,
                 tail=params["tail"],
                 body=params["body"],
+                costume=params.get("costume", ""),
                 extra=params["extra_prompt"],
                 first_stage=first_stage,
             )
@@ -482,6 +483,7 @@ async def generate(
     fur_color: str = Form(""),
     tail: str = Form(""),
     body: str = Form(""),
+    costume: str = Form(""),
     extra_prompt: str = Form(""),
     recolor: str = Form(""),
     remove_bg: bool = Form(False),
@@ -516,6 +518,12 @@ async def generate(
     - tail: しっぽ形状の自由記述(例 "a long fluffy tail with a black tip")。
       "none" でしっぽなし、空/"auto" で指定なし(未指定だとビューごとに形状が
       揺れるため、入力画像にしっぽが写っていない場合は指定推奨)
+    - costume: **背面から見た衣装**の自由記述(任意、背面ビューにのみ効く)。
+      前開きのベスト・カーディガン等は、既定だと**背中側にも前開きが描かれ**
+      インナーが見えてしまう(tpose/prompts.py の該当コメント参照)。例:
+      "the short cream lace bolero ends at the waist and its back is one continuous
+      piece of lace, the white pencil skirt below it is unchanged"。
+      **丈・範囲まで書くこと**(書かないと衣装が伸びてワンピース化した実測あり)
     - extra_prompt: プロンプト末尾へ追記する自由記述(任意)
     - recolor: 生成後に色を調整する2パス目の指示(任意、空なら実行しない)。例
       "Make the fur a warmer cream tone with richer shading"。全ビューへ同じ指示を
@@ -589,6 +597,7 @@ async def generate(
         "fur_color": fur_color,
         "tail": tail,
         "body": body,
+        "costume": costume,
         "extra_prompt": extra_prompt,
         "tail_ref": bool(tail_ref_path),
         "size": generate_mod.edit_size(),

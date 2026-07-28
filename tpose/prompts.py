@@ -418,10 +418,48 @@ def _view_clause(view_key: str, subject_kind: str, first_stage: bool = False) ->
 # 結論: 明るさは**プロンプトではなく切り抜き側で対処する**(`_cutout_rgba()` の
 # 白キーイング。背面の取りこぼしは 17,338px -> 774px まで解消済み)。
 # なお `extra_prompt` も同じ理由で**爪抑制文より前**に差し込む(下記 build_prompt)。
+# 背面ビューで「衣装が前側の見え方のまま描かれる」問題(2026-07-28、ユーザー報告
+# 「衣装のベストが後ろのときに前側のようになりました」)。
+#
+# 症状: 前開きのレースのボレロ(ベスト)を着た人物の背面で、**背中側にも前開きのV字**が
+# 描かれ、その隙間からインナー(オレンジ)が見える。本来、背面から見た上着は一枚布の
+# 背パネルで覆われる。
+#
+# 原因: 背面プロンプトの**末尾**を `_KEEP_CLAUSE`(「デザイン・衣装・色を全く同じに
+# 保つ」)が占めている。参照画像は正面のTポーズなので、最も強い位置で「同じに保て」と
+# 言われたモデルは**正面の見え方をそのまま複製**する。
+#
+# 実測(レースボレロの人物、背中の中央上部帯に占めるインナー色の割合。低いほど良い。
+# ただし正解は0ではない: ボレロの裾から下はインナーが見えるのが正しい):
+#   修正なし                                        51.2% / 80.1%(+ユーザー報告 70.2%)
+#   ✕ 汎用文「衣装は背面から見え、背パネルと縫い目が見える」を末尾へ追加
+#                                                   79.8% / 46.3% -> **効果なし**
+#     (しかも一方の seed では**ボレロ自体が消えて**インナーに縫い目が付いただけになった)
+#   ○ 具体記述「the cream lace bolero covers the whole back in one continuous piece
+#     of lace」                                      1.9% / 0.8% -> 背中は直ったが
+#     **ボレロが膝丈のワンピースに伸び**て白いスカートが隠れた(記述が丈に触れていない)
+#   ◎ 丈まで含めた具体記述「the short cream lace bolero ends at the waist and its back
+#     is one continuous piece of lace, the white pencil skirt below it is unchanged」
+#                                                    8.3% / 13.0% -> 目視でも正解
+#     (背中は一枚のレース、丈は腰まで、スカートも無傷)
+#
+# 結論: `body`(体型)・`tail`(しっぽ)と全く同じ「**汎用文は効かない。具体的な言語化
+# だけが効く**」パターンだった。そのため汎用句を既定で入れるのはやめ、ユーザーが
+# 記述する `costume` パラメータとして提供する。**丈・範囲まで書かないと衣装が伸びる**
+# 点も含めてUIのヒントに書いてある。
+#
+# 適用は背面ビューのみ(「背中がどう見えるか」の記述なので、正面・45度に入れると害になる)。
+def _costume_clause(view_key: str, costume: str) -> str:
+    costume = (costume or "").strip()
+    if not costume or view_key != "back":
+        return ""
+    return costume
+
+
 def build_prompt(view_key: str, palms: str = "forward", paw_pads: str = "auto",
                  tail: str = "", body: str = "", extra: str = "",
                  first_stage: bool = False, subject: str = "auto",
-                 claws: str = "none", fur_color: str = "") -> str:
+                 claws: str = "none", fur_color: str = "", costume: str = "") -> str:
     """1ビュー分のプロンプトを組み立てる。
 
     句の順序は実測で決めてある(下の「脚が伸びる問題」のコメント参照):
@@ -457,12 +495,20 @@ def build_prompt(view_key: str, palms: str = "forward", paw_pads: str = "auto",
     # 優先し、爪抑制を統合した1文を末尾に置く(_back_head_clause)。それ以外のビューは
     # 従来どおり爪抑制文を末尾に置く。
     back_head = _back_head_clause(subject_kind, fur_color) if view_key == "back" else ""
+    costume_clause = _costume_clause(view_key, costume)
+    # animal は末尾の後頭部/爪の対策文が実測で効いているため、衣装記述はその**前**に置く。
+    # それ以外(中立・人物)はこれらの対策文が空なので、衣装記述が末尾(最強)に来る。
+    if subject_kind == "animal" and costume_clause:
+        parts.append(costume_clause)
+        costume_clause = ""
     if back_head:
         parts.append(back_head)
     else:
         claws_clause = _claws_clause(claws, subject_kind, fur_color)
         if claws_clause:
             parts.append(claws_clause)
+    if costume_clause:
+        parts.append(costume_clause)
     return ", ".join(parts)
 
 
