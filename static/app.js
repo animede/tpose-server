@@ -276,6 +276,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const editViewsEl = document.getElementById("tp-edit-view-checkboxes");
   const editSelectAllBtn = document.getElementById("tp-edit-select-all-btn");
   const editSelectNoneBtn = document.getElementById("tp-edit-select-none-btn");
+  const upscaleBtn = document.getElementById("tp-upscale-btn");
   const undoBtn = document.getElementById("tp-undo-btn");
   const editError = document.getElementById("tp-edit-error");
   const palmsInput = document.getElementById("tp-palms-input");
@@ -356,7 +357,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const tpTiles = new Map();  // key -> {tile, wrap, img, spinner, label, status, dl, dlNobg, actions}
   const TP_STATUS_TEXT = {
     queued: "待機中", running: "生成中", recoloring: "色調整中",
-    editing: "編集中", done: "完了", error: "エラー",
+    editing: "編集中", upscaling: "拡大中", done: "完了", error: "エラー",
   };
 
   function tpCreateTile(v) {
@@ -396,6 +397,16 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     dlNobg.textContent = "背景透過版をダウンロード";
     dlNobg.style.display = "none";
     tile.appendChild(dlNobg);
+    const dlUp = document.createElement("a");
+    dlUp.className = "view-tile-download";
+    dlUp.setAttribute("download", "");
+    dlUp.style.display = "none";
+    tile.appendChild(dlUp);
+    const dlUpNobg = document.createElement("a");
+    dlUpNobg.className = "view-tile-download";
+    dlUpNobg.setAttribute("download", "");
+    dlUpNobg.style.display = "none";
+    tile.appendChild(dlUpNobg);
     const actions = document.createElement("div");
     actions.className = "view-tile-actions";
     actions.style.display = "none";
@@ -414,7 +425,8 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     actions.appendChild(undoOne);
     tile.appendChild(actions);
     viewsGrid.appendChild(tile);
-    const entry = { tile, img, spinner, status, dl, dlNobg, actions, undoOne, rev: -1 };
+    const entry = { tile, img, spinner, status, dl, dlNobg, dlUp, dlUpNobg,
+                    actions, undoOne, rev: -1 };
     tpTiles.set(v.key, entry);
     return entry;
   }
@@ -443,6 +455,20 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
         t.dlNobg.style.display = "block";
       } else {
         t.dlNobg.style.display = "none";
+      }
+      if (v.up_download_url) {
+        t.dlUp.href = v.up_download_url;
+        t.dlUp.textContent = `${v.up_size || "2048"} 版をダウンロード`;
+        t.dlUp.style.display = "block";
+      } else {
+        t.dlUp.style.display = "none";
+      }
+      if (v.up_nobg_download_url) {
+        t.dlUpNobg.href = v.up_nobg_download_url;
+        t.dlUpNobg.textContent = `${v.up_size || "2048"} 透過版をダウンロード`;
+        t.dlUpNobg.style.display = "block";
+      } else {
+        t.dlUpNobg.style.display = "none";
       }
       t.actions.style.display = v.status === "done" ? "flex" : "none";
       t.undoOne.style.display = v.has_prev ? "inline-block" : "none";
@@ -533,6 +559,33 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   function tpSetEditButtonsDisabled(disabled) {
     editBtn.disabled = disabled;
     editAllBtn.disabled = disabled;
+    if (upscaleBtn) upscaleBtn.disabled = disabled;
+  }
+
+  // --- 2048アップスケール(Real-ESRGAN x2。内容は書き換わらない) ---
+  async function applyUpscale(keys) {
+    if (!currentJobId || busy) return;
+    showEditError("");
+    const fd = new FormData();
+    if (keys && keys.length) fd.append("views", keys.join(","));
+    busy = true;
+    tpSetEditButtonsDisabled(true);
+    showStatus("2048へアップスケール中...");
+    try {
+      const resp = await fetch(`/api/tpose/jobs/${currentJobId}/upscale`, {
+        method: "POST", body: fd });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      pollTimer = setInterval(() => pollJob(currentJobId), 1500);
+      pollJob(currentJobId);
+    } catch (err) {
+      busy = false;
+      tpSetEditButtonsDisabled(false);
+      showStatus("");
+      showEditError(err.message);
+    }
   }
 
   async function applyUndo(keys) {
@@ -565,6 +618,13 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     if (!keys.length) { showEditError("対象ビューを1つ以上選んでください"); return; }
     applyUndo(keys);
   });
+  if (upscaleBtn) {
+    upscaleBtn.addEventListener("click", () => {
+      const keys = tpSelectedEditViews();
+      if (!keys.length) { showEditError("対象ビューを1つ以上選んでください"); return; }
+      applyUpscale(keys);
+    });
+  }
   editSelectAllBtn.addEventListener("click", () => {
     document.querySelectorAll(".tp-edit-view-cb").forEach((cb) => { cb.checked = true; });
   });
@@ -580,12 +640,17 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
       currentJobId = job.job_id;
       renderViews(job.views);
       if (job.edit_error) showEditError("編集エラー: " + job.edit_error);
+      if (job.upscale_error) showEditError("アップスケールエラー: " + job.upscale_error);
       if (job.zip_url) {
         zipLink.href = job.zip_url;
         zipRow.classList.remove("hidden");
       }
       if (job.status === "editing") {
         showStatus("編集中...");
+        return;
+      }
+      if (job.status === "upscaling") {
+        showStatus("2048へアップスケール中...");
         return;
       }
       if (job.status === "removing_bg") {

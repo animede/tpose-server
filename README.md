@@ -44,6 +44,7 @@ DS_VENV=/path/to/venv ./run.sh             # 別の環境を使う
 | vae / text_encoder / tokenizer | — | `Qwen/Qwen-Image` |
 | processor | — | `Qwen/Qwen-Image-Edit-2509` |
 | 背景除去(anime) | — | `skytnt/anime-seg`(`isnetis.onnx`、176MB) |
+| アップスケーラ | `DS_UPSCALE_MODEL` で任意のパス | `ai-forever/Real-ESRGAN`(`RealESRGAN_x2.pth`、64MB) |
 
 ## 起動
 
@@ -67,6 +68,7 @@ VRAM を食い合う**(このサーバのピークは約35GB)。
 | GET | `/api/tpose/jobs/{id}/download.zip` | 全ビュー + 入力画像のZIP |
 | GET | `/api/tpose/jobs/{id}/input.png` | 前処理後の入力画像 |
 | POST | `/api/tpose/jobs/{id}/edit` | 生成後の追加編集(何度でも)。`use_reference=true` で元画像を2枚目の参照に渡せる(既定 false、ポーズを引き戻す事故があるため) |
+| POST | `/api/tpose/jobs/{id}/upscale` | 生成済みビューを2048へアップスケール(Real-ESRGAN x2)。`views` / `target`(既定2048) |
 | POST | `/api/tpose/jobs/{id}/undo` | 直前の編集を取り消す(1世代) |
 | GET | `/api/tpose/views` | ビューID・プリセット一覧(UI用) |
 | GET | `/api/status` | ロード状態・VRAM |
@@ -110,6 +112,15 @@ curl http://127.0.0.1:8610/api/tpose/jobs/3b4cde03a7f6
 curl -O http://127.0.0.1:8610/api/tpose/jobs/3b4cde03a7f6/download/front.png
 ```
 
+### アップスケール(2048)
+
+生成後に「選択したビューを2048へアップスケール」を押すと、`<key>_2048.png`
+(透過版があれば `<key>_2048_nobg.png` も)が追加されます。1024版は残ります。
+
+**Real-ESRGAN x2 による決定論的な拡大で、内容は書き換わりません**(拡散モデルでの
+再生成ではないので、髪型・衣装がドリフトしない)。実測でシャープさは Lanczos 拡大の
+約2.5倍(ラプラシアン分散 36.9 vs 15.0)。元画像を編集すると古い2048版は自動で破棄されます。
+
 ### 3D化に渡すビュー
 
 **image-3d(Hunyuan3D-2mv)へ渡すのは `front` と `back` の2枚だけ**にすること。
@@ -132,6 +143,7 @@ curl -O http://127.0.0.1:8610/api/tpose/jobs/3b4cde03a7f6/download/front.png
 | `DS_QWEN_TILED_VAE` | `1` | 共有VAEの encode/decode を常時 tiled 化 |
 | `DS_TERMINAL_PROGRESS` | `0` | 起動ターミナルへ進捗バーを出す |
 | `DS_ANIME_SEG_PROVIDER` | `cpu` | 背景除去(anime)の ONNX 実行プロバイダ |
+| `DS_UPSCALE_MODEL` | (HFから取得) | アップスケーラの重み(spandrel が読める ESRGAN系 .pth/.safetensors) |
 
 ## 実測(RTX PRO 6000 Blackwell、1024²、seed 固定)
 
@@ -142,6 +154,7 @@ curl -O http://127.0.0.1:8610/api/tpose/jobs/3b4cde03a7f6/download/front.png
 | 4ビュー1セット | 約70秒(ロード込み) |
 | ピークVRAM | 35.0〜35.5GB(48GB専有でも収まる) |
 | 背景除去(CPU) | 0.6〜1.4秒/枚 |
+| 2048アップスケール | 2秒/枚(ピークVRAM 4.1GB) |
 
 ## リポジトリ構成
 

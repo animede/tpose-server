@@ -213,6 +213,16 @@
               <button type="button" class="tiny-btn" id="tp-edit-all-btn">全ビューに適用</button>
               <button type="button" class="tiny-btn secondary" id="tp-undo-btn">選択したビューの編集を取り消す</button>
             </div>
+            <div class="view-tile-actions" style="justify-content:flex-start; padding:8px 0 0;">
+              <button type="button" class="tiny-btn" id="tp-upscale-btn">選択したビューを2048へアップスケール</button>
+            </div>
+            <p class="form-hint" style="margin-top:6px;">
+              Real-ESRGAN(x2)で拡大します。<strong>拡散モデルでの再生成ではないので内容は
+              変わりません</strong>(髪型・衣装がドリフトしない)。1枚あたり約2秒。
+              1024版はそのまま残り、<code>&lt;ビュー&gt;_2048.png</code> が追加されます
+              (透過版があるビューは2048で切り抜きを作り直します)。ZIPにも含まれます。
+              元画像を編集すると、古い2048版は自動で破棄されます。
+            </p>
             <p class="form-hint" style="margin-top:6px;">
               <strong>元画像も参照する</strong>: 入力画像を2枚目の参照として渡し、
               「元の髪型に戻す」等で元の見た目を参照させます。ただし

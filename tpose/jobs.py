@@ -107,6 +107,12 @@ def _init_job(job_id: str, seed: int, views: list, params: dict):
             "download_url": None,
             "nobg_url": None,
             "nobg_download_url": None,
+            # 2048アップスケール版(POST /jobs/{id}/upscale で作る)
+            "up_url": None,
+            "up_download_url": None,
+            "up_nobg_url": None,
+            "up_nobg_download_url": None,
+            "up_size": None,
             "has_prev": False,
             # rev: この画像が書き換わった回数。UIは rev が変わったときだけ画像を
             # 再読み込みする(毎回キャッシュバスターを付けるとポーリングのたびに
@@ -167,7 +173,8 @@ def _copy_generated_image(meta: dict, dest_path: str) -> None:
 def _build_zip(job_dir: str, keys: list) -> Optional[str]:
     """生成済みビューをZIPにまとめる(一括ダウンロード用)。
 
-    背景透過版(`<key>_nobg.png`)があれば併せて含める。
+    背景透過版(`<key>_nobg.png`)とアップスケール版(`<key>_2048*.png`)があれば
+    併せて含める。
     """
     paths = [(k, os.path.join(job_dir, f"{k}.png")) for k in keys]
     paths = [(k, p) for k, p in paths if os.path.exists(p)]
@@ -177,9 +184,10 @@ def _build_zip(job_dir: str, keys: list) -> Optional[str]:
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for key, path in paths:
             zf.write(path, arcname=f"{key}.png")
-            nobg = os.path.join(job_dir, f"{key}_nobg.png")
-            if os.path.exists(nobg):
-                zf.write(nobg, arcname=f"{key}_nobg.png")
+            for suffix in ("_nobg", "_2048", "_2048_nobg"):
+                extra = os.path.join(job_dir, f"{key}{suffix}.png")
+                if os.path.exists(extra):
+                    zf.write(extra, arcname=f"{key}{suffix}.png")
         input_path = os.path.join(job_dir, "input.png")
         if os.path.exists(input_path):
             zf.write(input_path, arcname="input.png")
@@ -627,9 +635,14 @@ async def get_job(job_id: str):
 def _resolve_view_file(key: str) -> str:
     """URLの `{key}` を許可リストで検証してファイル名へ解決する。
 
-    `<view>` は白背景版、`<view>_nobg` は背景透過版(remove_bg=true時のみ存在)。
+    `<view>` は白背景版、`<view>_nobg` は背景透過版(remove_bg=true時のみ存在)、
+    `<view>_2048` / `<view>_2048_nobg` はアップスケール版(upscale 実行時のみ存在)。
     """
-    base = key[:-5] if key.endswith("_nobg") else key
+    base = key
+    for suffix in ("_2048_nobg", "_2048", "_nobg"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
     if base not in VIEW_BY_KEY:
         raise HTTPException(status_code=404, detail="不正なビューIDです")
     return f"{key}.png"
@@ -784,6 +797,7 @@ def _run_edit(job_id: str, keys: list, instruction: str, seed: int, keep_pose: b
                     )
                 _copy_generated_image(meta, img_path)
                 _bump_view_rev(job_id, key)
+                _clear_upscaled(job_id, job_dir, key)
             except Exception as exc:  # noqa: BLE001
                 traceback.print_exc()
                 _update_view(job_id, key, status="done")
@@ -869,6 +883,142 @@ async def edit_views(
     return {"job_id": job_id, "views": keys, "status": "editing"}
 
 
+# ============================================================================
+# アップスケール(2048)
+#
+# 3D化・リグへ渡す前に解像度を上げるための後処理(ユーザー要望 2026-07-28)。
+# **Real-ESRGAN x2(GAN系、決定論的)を使い、拡散モデルでの再生成はしない**:
+# 再生成だと解像度は上がっても細部が書き換わる(このアプリが繰り返し戦ってきた
+# 髪型・衣装のドリフトがそのまま起きる)。詳細は core/upscale.py の冒頭コメント。
+# 白背景版を拡大し、透過版を持つビューは**拡大後に切り抜きを作り直す**
+# (2048で切り抜いた方が輪郭が精細になる)。
+# ============================================================================
+def _clear_upscaled(job_id: str, job_dir: str, key: str) -> None:
+    """元画像が書き換わったら、古いアップスケール版は削除する(取り違え防止)。"""
+    removed = False
+    for suffix in ("_2048", "_2048_nobg"):
+        path = os.path.join(job_dir, f"{key}{suffix}.png")
+        if os.path.exists(path):
+            os.remove(path)
+            removed = True
+    if removed:
+        _update_view(job_id, key, up_url=None, up_download_url=None,
+                     up_nobg_url=None, up_nobg_download_url=None, up_size=None)
+
+
+def _run_upscale(job_id: str, keys: list, target: int):
+    global current_job_id
+    job_dir = _job_dir(job_id)
+    got_lock = False
+    try:
+        _update_job(job_id, status="upscaling", upscale_error=None)
+        got_lock = generate_mod.acquire_generation_lock(blocking=True)
+        gpu.empty_cache()
+
+        from core.upscale import upscale_image
+
+        done_keys = []
+        for key in keys:
+            src = os.path.join(job_dir, f"{key}.png")
+            if not os.path.exists(src):
+                continue
+            _update_view(job_id, key, status="upscaling")
+            try:
+                with Image.open(src) as im:
+                    out = upscale_image(im.convert("RGB"), target=target)
+                out.save(os.path.join(job_dir, f"{key}_2048.png"))
+            except Exception as exc:  # noqa: BLE001
+                traceback.print_exc()
+                _update_view(job_id, key, status="done")
+                _update_job(job_id, status="done", upscale_error=f"{key}: {exc}")
+                return
+            _update_view(
+                job_id, key, status="done", up_size=f"{out.width}x{out.height}",
+                up_url=f"/api/tpose/jobs/{job_id}/images/{key}_2048.png",
+                up_download_url=f"/api/tpose/jobs/{job_id}/download/{key}_2048.png",
+            )
+            done_keys.append(key)
+
+        # 透過版を持つビューは 2048 で切り抜きを作り直す(CPU処理なのでロック解放後)。
+        nobg_keys = [k for k in done_keys
+                     if os.path.exists(os.path.join(job_dir, f"{k}_nobg.png"))]
+        if nobg_keys:
+            if got_lock:
+                generate_mod.release_generation_lock()
+                got_lock = False
+            _update_job(job_id, status="removing_bg")
+            method = (jobs[job_id].get("params") or {}).get("bg_method", "anime")
+            from core.bg import remove_background, resolve_method
+
+            method = resolve_method(method)
+            for key in nobg_keys:
+                path = os.path.join(job_dir, f"{key}_2048.png")
+                try:
+                    with Image.open(path) as im:
+                        rgb = im.convert("RGB")
+                        rgba = _cutout_rgba(rgb, remove_background(rgb, method=method))
+                    rgba.save(os.path.join(job_dir, f"{key}_2048_nobg.png"))
+                except Exception as exc:  # noqa: BLE001
+                    traceback.print_exc()
+                    _update_view(job_id, key, nobg_error=str(exc))
+                    continue
+                _update_view(
+                    job_id, key,
+                    up_nobg_url=f"/api/tpose/jobs/{job_id}/images/{key}_2048_nobg.png",
+                    up_nobg_download_url=f"/api/tpose/jobs/{job_id}/download/{key}_2048_nobg.png",
+                )
+
+        _build_zip(job_dir, [v["key"] for v in jobs[job_id]["views"]])
+        _update_job(job_id, status="done")
+    except Exception as exc:  # noqa: BLE001
+        traceback.print_exc()
+        _update_job(job_id, status="done", upscale_error=str(exc))
+    finally:
+        progress_mod.finish()
+        if got_lock:
+            generate_mod.release_generation_lock()
+        with current_job_lock:
+            current_job_id = None
+
+
+@router.post("/jobs/{job_id}/upscale")
+async def upscale_views(job_id: str, views: str = Form(""), target: int = Form(2048)):
+    """生成済みビューを `target` px(既定2048)へアップスケールする。
+
+    - views: カンマ区切りのビューID(省略=完了済み全ビュー)
+    - target: 出力の長辺(既定 2048)。1024〜4096
+
+    Real-ESRGAN x2(`core/upscale.py`)で拡大するので**内容は書き換わらない**
+    (拡散モデルでの再生成ではない)。元の1024版はそのまま残り、
+    `<key>_2048.png` が追加される。透過版を持つビューは 2048 で切り抜きを作り直す。
+    元画像を編集(`/edit`・`/undo`)すると、古いアップスケール版は自動的に破棄される。
+    """
+    global current_job_id
+    _check_job_id(job_id)
+    if target < 1024 or target > 4096:
+        raise HTTPException(status_code=400, detail="target は 1024〜4096 で指定してください。")
+    with jobs_lock:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="ジョブが見つかりません")
+        job = dict(job)
+    keys = _parse_view_keys(views, job)
+
+    with current_job_lock:
+        if current_job_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail="別のTポーズ生成/編集が実行中です。しばらく待ってから再試行してください。",
+            )
+        current_job_id = job_id
+
+    thread = threading.Thread(
+        target=_run_upscale, args=(job_id, keys, int(target)), daemon=True
+    )
+    thread.start()
+    return {"job_id": job_id, "views": keys, "status": "upscaling", "target": target}
+
+
 @router.post("/jobs/{job_id}/undo")
 async def undo_views(job_id: str, views: str = Form("")):
     """直前の Edit を取り消す(`<key>_prev.png` から復元。1世代のみ)。"""
@@ -889,6 +1039,7 @@ async def undo_views(job_id: str, views: str = Form("")):
         shutil.copy2(prev, os.path.join(job_dir, f"{key}.png"))
         os.remove(prev)
         _bump_view_rev(job_id, key)
+        _clear_upscaled(job_id, job_dir, key)
         restored.append(key)
     if not restored:
         raise HTTPException(status_code=409, detail="取り消せる編集がありません。")
