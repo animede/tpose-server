@@ -66,7 +66,7 @@ VRAM を食い合う**(このサーバのピークは約35GB)。
 | GET | `/api/tpose/jobs/{id}/download/{key}.png` | ビュー画像(ダウンロード) |
 | GET | `/api/tpose/jobs/{id}/download.zip` | 全ビュー + 入力画像のZIP |
 | GET | `/api/tpose/jobs/{id}/input.png` | 前処理後の入力画像 |
-| POST | `/api/tpose/jobs/{id}/edit` | 生成後の追加編集(何度でも) |
+| POST | `/api/tpose/jobs/{id}/edit` | 生成後の追加編集(何度でも)。`use_reference=true` で元画像を2枚目の参照に渡せる(既定 false、ポーズを引き戻す事故があるため) |
 | POST | `/api/tpose/jobs/{id}/undo` | 直前の編集を取り消す(1世代) |
 | GET | `/api/tpose/views` | ビューID・プリセット一覧(UI用) |
 | GET | `/api/status` | ロード状態・VRAM |

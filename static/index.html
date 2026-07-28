@@ -194,6 +194,10 @@
                 <input type="checkbox" id="tp-edit-keeppose" checked>
                 ポーズ・構図・背景を維持する
               </label>
+              <label class="checkbox-row" style="align-self:end;">
+                <input type="checkbox" id="tp-edit-useref">
+                元画像も参照する(実験的)
+              </label>
             </div>
             <fieldset id="tp-edit-view-fieldset"
                       style="border:1px solid #444; border-radius:6px; padding:6px 10px; margin-top:8px;">
@@ -209,6 +213,13 @@
               <button type="button" class="tiny-btn" id="tp-edit-all-btn">全ビューに適用</button>
               <button type="button" class="tiny-btn secondary" id="tp-undo-btn">選択したビューの編集を取り消す</button>
             </div>
+            <p class="form-hint" style="margin-top:6px;">
+              <strong>元画像も参照する</strong>: 入力画像を2枚目の参照として渡し、
+              「元の髪型に戻す」等で元の見た目を参照させます。ただし
+              <strong>元画像のポーズ・背景まで引き戻す事故があります</strong>
+              (実測: 3seed中1つでTポーズが崩れて自然な立ち姿になり、別のseedでは背景が
+              市松模様になりました)。既定OFF、必要なときだけONにしてください。
+            </p>
             <p class="form-hint" style="margin-top:6px;">
               色調整だけでなく汎用の修正に使えます(「帽子を外す」等)。
               <strong>4枚のうち一部だけ直したいときは「対象ビュー」で選んで「選択したビューに適用」</strong>

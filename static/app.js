@@ -270,6 +270,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const editInput = document.getElementById("tp-edit-input");
   const editSeed = document.getElementById("tp-edit-seed");
   const editKeepPose = document.getElementById("tp-edit-keeppose");
+  const editUseRef = document.getElementById("tp-edit-useref");
   const editBtn = document.getElementById("tp-edit-btn");
   const editAllBtn = document.getElementById("tp-edit-all-btn");
   const editViewsEl = document.getElementById("tp-edit-view-checkboxes");
@@ -508,6 +509,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     fd.append("prompt", instruction);
     fd.append("seed", editSeed.value || "0");
     fd.append("keep_pose", editKeepPose.checked ? "true" : "false");
+    fd.append("use_reference", editUseRef && editUseRef.checked ? "true" : "false");
     if (keys && keys.length) fd.append("views", keys.join(","));
     busy = true;
     tpSetEditButtonsDisabled(true);

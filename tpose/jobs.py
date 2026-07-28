@@ -718,12 +718,40 @@ def _refresh_has_prev(job_id: str, job_dir: str) -> None:
             v["has_prev"] = os.path.exists(os.path.join(job_dir, f"{v['key']}_prev.png"))
 
 
-def _run_edit(job_id: str, keys: list, instruction: str, seed: int, keep_pose: bool):
-    """選択ビューへ順に Edit をかけ、透過版・ZIPを作り直す。"""
+def _run_edit(job_id: str, keys: list, instruction: str, seed: int, keep_pose: bool,
+              use_reference: bool = False):
+    """選択ビューへ順に Edit をかけ、透過版・ZIPを作り直す。
+
+    use_reference(**既定 False**): 元画像(input.png)を2枚目の参照として渡す
+    (ユーザー提案 2026-07-28「生成後のEDITをレファレンス付きにすれば、オリジナルを
+    参照して修正ができるのでは」)。生成の2段目以降が [生成した正面, 元画像] の
+    2枚参照で連鎖しているのと同じ手で、Edit も QwenImageEditPlusPipeline なので
+    参照は最大3枚まで渡せる(MAX_EDIT_IMAGES)。プロンプト側で
+    「1枚目=編集対象、2枚目=同じキャラの元画像」と明示する
+    (build_edit_prompt(with_reference=True))。
+
+    **既定を False にした理由(実機A/B)**: 参照ありは元の見た目をよく思い出す
+    (指示 "restore the original hairstyle" で元のまとめ髪・前髪に近づいた)一方、
+    **元画像のポーズ・背景まで引き戻す事故**が起きる。被写体bboxの幅/高さ比
+    (Tポーズは腕を広げるので大きい)で測ると
+      編集前 0.90 / 参照なし 0.89 / 参照あり 0.87・0.87・**0.27**
+    となり、3seed中1つで**Tポーズが壊れて元写真の自然な立ち姿に戻った**。
+    別のseedでは背景が市松模様になった。衣装の修正でも、参照ありは
+    「背中中央のインナー露出 1.3%(参照なし 6.1%)」と数値上は良いのに、
+    **目視ではボレロが膝丈のワンピースへ伸びていた**(参照なしは腰丈で正解)。
+    そのため「元の見た目を思い出させたいときだけ明示的にONにする」運用にする。
+    """
     global current_job_id
     job_dir = _job_dir(job_id)
     got_lock = False
-    prompt = build_edit_prompt(instruction, keep_pose=keep_pose)
+    reference = None
+    if use_reference:
+        ref_path = os.path.join(job_dir, "input.png")
+        if os.path.exists(ref_path):
+            with Image.open(ref_path) as ref:
+                reference = ref.convert("RGB")
+    prompt = build_edit_prompt(instruction, keep_pose=keep_pose,
+                               with_reference=reference is not None)
     try:
         _update_job(job_id, status="editing", edit_error=None)
         got_lock = generate_mod.acquire_generation_lock(blocking=True)
@@ -738,8 +766,11 @@ def _run_edit(job_id: str, keys: list, instruction: str, seed: int, keep_pose: b
             shutil.copy2(img_path, os.path.join(job_dir, f"{key}_prev.png"))
             try:
                 with Image.open(img_path) as current:
+                    refs = [current.convert("RGB")]
+                    if reference is not None:
+                        refs.append(reference)
                     meta = generate_mod.generate_view(
-                        [current.convert("RGB")],
+                        refs,
                         prompt=prompt,
                         seed=seed,
                         negative_prompt=NEGATIVE_PROMPT,
@@ -792,6 +823,7 @@ async def edit_views(
     views: str = Form(""),
     seed: int = Form(0),
     keep_pose: bool = Form(True),
+    use_reference: bool = Form(False),
 ):
     """生成済みビューへ追加の Edit をかける(何度でも呼べる)。
 
@@ -799,7 +831,13 @@ async def edit_views(
       "remove the hat")
     - views: カンマ区切りのビューID(省略=完了済み全ビュー)
     - seed: 乱数シード(0=ランダム)
-    - keep_pose: true(既定)なら「ポーズ・構図・デザイン・背景は変えない」を付ける
+    - keep_pose: true(既定)なら「ポーズ・画角・背景と、それ以外の細部は変えない」を
+      前置きする(指示文は末尾に置く)
+    - use_reference: **既定 false**。true にすると元画像を2枚目の参照として渡し、
+      「元の髪型・衣装へ戻す」系の修正で元の見た目を参照できる。ただし
+      **元画像のポーズ・背景まで引き戻す事故がある**(実機A/Bで3seed中1つが
+      Tポーズを失い自然な立ち姿に戻った。_run_edit のコメント参照)ので、
+      必要なときだけONにすること
     直前の画像は `<key>_prev.png` に1世代退避され、`POST /jobs/{job_id}/undo` で戻せる。
     透過版を持つビューは Edit 後に作り直す。
     """
@@ -823,7 +861,9 @@ async def edit_views(
         current_job_id = job_id
 
     thread = threading.Thread(
-        target=_run_edit, args=(job_id, keys, prompt, seed, bool(keep_pose)), daemon=True
+        target=_run_edit,
+        args=(job_id, keys, prompt, seed, bool(keep_pose), bool(use_reference)),
+        daemon=True,
     )
     thread.start()
     return {"job_id": job_id, "views": keys, "status": "editing"}

@@ -568,17 +568,37 @@ _EDIT_KEEP_PREFIX = (
     "other detail of the character unchanged. Change only this: "
 )
 
+# 2枚目の参照(元画像)を渡すときの前置き(ユーザー提案 2026-07-28)。
+# 生成の2段目以降が [生成した正面, 元画像] の2枚参照で連鎖しているのと同じ手。
+# **どの画像が何なのかを明示しないと、モデルが元画像のポーズ・背景へ引き戻す**ため、
+# 「1枚目=編集対象(こちらのポーズ・画角を保つ)、2枚目=同じキャラの元画像(見た目の
+# 参照)」と書き分ける。指示文は従来どおり末尾(最強の位置)に置く。
+_EDIT_REFERENCE_PREFIX = (
+    "The first image is the picture to edit. The second image is the original "
+    "reference photo of the same character, use it only to look up how the "
+    "character originally looks. Keep the pose, camera angle, framing and "
+    "background of the first image, and keep every other detail unchanged. "
+    "Change only this: "
+)
 
-def build_edit_prompt(instruction: str, keep_pose: bool = True) -> str:
+
+def build_edit_prompt(instruction: str, keep_pose: bool = True,
+                      with_reference: bool = False) -> str:
     """生成済みビューへ追加でかける Edit のプロンプトを組み立てる。
 
     色調整だけでなく汎用の修正指示に使える(「帽子を外す」「服を赤くする」等)。
     keep_pose=True(既定)なら「ポーズ・画角・背景と、それ以外の細部は変えない」を
     **前置き**し、指示文を末尾に置く(上のコメント参照)。False なら指示文だけを渡す
     (構図ごと変えたい場合)。
+
+    with_reference=True なら「2枚目に元画像を渡している」前提の前置きを使う
+    (tpose/jobs.py の _run_edit)。keep_pose=False のときは従来どおり指示文だけ。
     """
     instruction = instruction.strip()
-    return f"{_EDIT_KEEP_PREFIX}{instruction}" if keep_pose else instruction
+    if not keep_pose:
+        return instruction
+    prefix = _EDIT_REFERENCE_PREFIX if with_reference else _EDIT_KEEP_PREFIX
+    return f"{prefix}{instruction}"
 
 
 def build_recolor_prompt(recolor: str) -> str:
