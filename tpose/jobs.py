@@ -49,6 +49,7 @@ from tpose.prompts import (
 )
 from core import gpu
 from core import progress as progress_mod
+from core.alpha_refine import refine_white_alpha
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUTS_DIR = os.path.join(BASE_DIR, "outputs", "tpose")
@@ -667,6 +668,15 @@ def _resolve_view_file(key: str) -> str:
     return f"{key}.png"
 
 
+def _resolve_nobg_key(key: str) -> str:
+    """白残り補正の対象を透過版の許可済みキーへ解決する。"""
+    suffix = "_2048_nobg" if key.endswith("_2048_nobg") else "_nobg"
+    base = key[: -len(suffix)] if key.endswith(suffix) else key
+    if base not in VIEW_BY_KEY:
+        raise HTTPException(status_code=404, detail="不正なビューIDです")
+    return f"{base}{suffix}"
+
+
 @router.get("/jobs/{job_id}/images/{key}.png")
 async def get_view_image(job_id: str, key: str):
     """ビュー画像の表示用(inline)。`{key}` に `_nobg` 付きを指定すると背景透過版。"""
@@ -675,7 +685,9 @@ async def get_view_image(job_id: str, key: str):
     path = os.path.join(OUTPUTS_DIR, job_id, f"{key}.png")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="画像が見つかりません")
-    return FileResponse(path, media_type="image/png")
+    return FileResponse(
+        path, media_type="image/png", headers={"Cache-Control": "no-store"}
+    )
 
 
 @router.get("/jobs/{job_id}/download/{key}.png")
@@ -692,7 +704,8 @@ async def download_view_image(job_id: str, key: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="画像が見つかりません")
     return FileResponse(
-        path, media_type="image/png", filename=f"tpose_{key}_{job_id}.png"
+        path, media_type="image/png", filename=f"tpose_{key}_{job_id}.png",
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -704,7 +717,8 @@ async def download_zip(job_id: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="ZIP が見つかりません")
     return FileResponse(
-        path, media_type="application/zip", filename=f"tpose_{job_id}.zip"
+        path, media_type="application/zip", filename=f"tpose_{job_id}.zip",
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -715,6 +729,73 @@ async def get_input_image(job_id: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="画像が見つかりません")
     return FileResponse(path, media_type="image/png")
+
+
+@router.post("/jobs/{job_id}/refine-alpha")
+async def refine_alpha(
+    job_id: str,
+    key: str = Form(...),
+    white_threshold: int = Form(250),
+    auto: bool = Form(True),
+    points: str = Form(""),
+    color_tolerance: int = Form(12),
+    feather: float = Form(0.8),
+):
+    """背景削除済みPNGに残った白を、自動またはクリック座標から追加除去する。"""
+    _check_job_id(job_id)
+    resolved = _resolve_nobg_key(key)
+    job_dir = _job_dir(job_id)
+    path = os.path.join(job_dir, f"{resolved}.png")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="背景透過版が見つかりません")
+
+    parsed_points = []
+    if points.strip():
+        try:
+            for item in points.split(";"):
+                x, y = item.split(",", 1)
+                parsed_points.append((int(x), int(y)))
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="points は x,y;x,y 形式で指定してください")
+    try:
+        with Image.open(path) as image:
+            output, removed = refine_white_alpha(
+                image, white_threshold=white_threshold, auto=auto,
+                points=parsed_points, color_tolerance=color_tolerance, feather=feather)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if removed:
+        prev = os.path.join(job_dir, f"{resolved}_alpha_prev.png")
+        shutil.copy2(path, prev)
+        output.save(path)
+        base = resolved.removesuffix("_2048_nobg").removesuffix("_nobg")
+        _bump_view_rev(job_id, base)
+        with jobs_lock:
+            job = dict(jobs.get(job_id) or {})
+        _build_zip(job_dir, [v["key"] for v in job.get("views", [])])
+    return {"job_id": job_id, "key": resolved, "removed_pixels": removed}
+
+
+@router.post("/jobs/{job_id}/refine-alpha/undo")
+async def undo_refine_alpha(job_id: str, key: str = Form(...)):
+    """直前の透過版白残り補正を取り消す。"""
+    _check_job_id(job_id)
+    resolved = _resolve_nobg_key(key)
+    job_dir = _job_dir(job_id)
+    path = os.path.join(job_dir, f"{resolved}.png")
+    prev = os.path.join(job_dir, f"{resolved}_alpha_prev.png")
+    if not os.path.exists(prev):
+        raise HTTPException(status_code=409, detail="取り消せる白残り補正がありません")
+    shutil.copy2(prev, path)
+    os.remove(prev)
+    base = resolved.removesuffix("_2048_nobg").removesuffix("_nobg")
+    _bump_view_rev(job_id, base)
+    with jobs_lock:
+        job = dict(jobs.get(job_id) or {})
+    _build_zip(job_dir, [v["key"] for v in job.get("views", [])])
+    return {"job_id": job_id, "key": resolved, "restored": True}
 
 
 # ============================================================================

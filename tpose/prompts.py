@@ -100,6 +100,14 @@ _SIDE_ARMS_CLAUSE = (
     "of the body stays visible"
 )
 
+# 真横で手前・奥の靴が前後にずれて見える問題への投影指定。角度だけでは3/4に戻るため、
+# 腰・膝・足首・靴が最終画像でどう見えるかを肯定形で明示する。
+_SIDE_FEET_CLAUSE = (
+    "in the side projection the hips, knees and ankles are precisely aligned, with the "
+    "near leg and near shoe forming one clean outer silhouette, exactly one shoe is "
+    "visible in strict side profile"
+)
+
 _KEEP_CLAUSE = (
     "full body visible from head to toe, plain white background, "
     "keep the character design, costume and colors exactly the same"
@@ -572,6 +580,10 @@ def build_prompt(view_key: str, palms: str = "forward", paw_pads: str = "auto",
             parts.append(claws_clause)
     if costume_clause:
         parts.append(costume_clause)
+    # 真横の幾何条件は末尾で最も強く効かせる。靴を履かないキャラクターでも
+    # near leg / outer silhouette が側面投影の手がかりとして働く。
+    if is_side:
+        parts.append(_SIDE_FEET_CLAUSE)
     return ", ".join(parts)
 
 

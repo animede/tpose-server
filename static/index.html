@@ -242,6 +242,44 @@
         </div>
       </div>
     </div>
+
+    <dialog id="tp-alpha-dialog" class="alpha-refine-dialog">
+      <form method="dialog" class="alpha-refine-panel">
+        <div class="alpha-refine-head">
+          <div>
+            <h3>透過画像の白残りを修正</h3>
+            <p>髪の隙間など残った白をクリックすると、連続する近似色だけを透明化します。</p>
+          </div>
+          <button type="button" class="tiny-btn secondary" id="tp-alpha-close">閉じる</button>
+        </div>
+        <div class="alpha-refine-stage checkerboard-bg" id="tp-alpha-stage">
+          <img id="tp-alpha-image" alt="背景透過版の補正プレビュー">
+          <div id="tp-alpha-markers" aria-hidden="true"></div>
+        </div>
+        <div class="alpha-refine-controls">
+          <label class="checkbox-row">
+            <input type="checkbox" id="tp-alpha-auto" checked>
+            外側の透明領域に接する白を自動除去
+          </label>
+          <label>白のしきい値 <output id="tp-alpha-threshold-out">250</output>
+            <input type="range" id="tp-alpha-threshold" min="220" max="255" value="250">
+          </label>
+          <label>クリック色の許容値 <output id="tp-alpha-tolerance-out">12</output>
+            <input type="range" id="tp-alpha-tolerance" min="0" max="50" value="12">
+          </label>
+          <label>境界ぼかし <output id="tp-alpha-feather-out">0.8</output>px
+            <input type="range" id="tp-alpha-feather" min="0" max="3" step="0.1" value="0.8">
+          </label>
+        </div>
+        <p class="form-hint">赤い印が手動指定点です。白目や服の反射ではなく、透明にしたい白領域の内側をクリックしてください。</p>
+        <p id="tp-alpha-message" class="status-message hidden"></p>
+        <div class="view-tile-actions alpha-refine-actions">
+          <button type="button" class="tiny-btn secondary" id="tp-alpha-clear">指定点をクリア</button>
+          <button type="button" class="tiny-btn secondary" id="tp-alpha-undo">直前の補正を取り消す</button>
+          <button type="button" class="tiny-btn" id="tp-alpha-apply">透明化を適用</button>
+        </div>
+      </form>
+    </dialog>
   </section>
 
 </main>

@@ -297,6 +297,14 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const checkboxesEl = document.getElementById("tp-view-checkboxes");
   const zipRow = document.getElementById("tp-zip-row");
   const zipLink = document.getElementById("tp-zip-link");
+  const alphaDialog = document.getElementById("tp-alpha-dialog");
+  const alphaImage = document.getElementById("tp-alpha-image");
+  const alphaMarkers = document.getElementById("tp-alpha-markers");
+  const alphaAuto = document.getElementById("tp-alpha-auto");
+  const alphaThreshold = document.getElementById("tp-alpha-threshold");
+  const alphaTolerance = document.getElementById("tp-alpha-tolerance");
+  const alphaFeather = document.getElementById("tp-alpha-feather");
+  const alphaMessage = document.getElementById("tp-alpha-message");
 
   let pollTimer = null;
   let busy = false;
@@ -364,6 +372,104 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     editing: "編集中", upscaling: "拡大中", done: "完了", error: "エラー",
   };
 
+  let alphaKey = null;
+  let alphaPoints = [];
+
+  function alphaShowMessage(message, isError = false) {
+    alphaMessage.textContent = message || "";
+    alphaMessage.classList.toggle("hidden", !message);
+    alphaMessage.classList.toggle("form-error", isError);
+  }
+
+  function alphaRenderMarkers() {
+    alphaMarkers.innerHTML = "";
+    if (!alphaImage.naturalWidth || !alphaImage.naturalHeight) return;
+    for (const point of alphaPoints) {
+      const marker = document.createElement("span");
+      marker.className = "alpha-refine-marker";
+      marker.style.left = `${point.x / alphaImage.naturalWidth * 100}%`;
+      marker.style.top = `${point.y / alphaImage.naturalHeight * 100}%`;
+      alphaMarkers.appendChild(marker);
+    }
+  }
+
+  function openAlphaRefine(key) {
+    if (!currentJobId || !alphaDialog) return;
+    alphaKey = key;
+    alphaPoints = [];
+    alphaRenderMarkers();
+    alphaShowMessage("");
+    const imageKey = key.endsWith("_nobg") ? key : `${key}_nobg`;
+    alphaImage.src = `/api/tpose/jobs/${currentJobId}/images/${imageKey}.png?t=${Date.now()}`;
+    alphaDialog.showModal();
+  }
+
+  async function submitAlphaRefine(undo = false) {
+    if (!currentJobId || !alphaKey) return;
+    const fd = new FormData();
+    fd.append("key", alphaKey);
+    if (!undo) {
+      fd.append("auto", alphaAuto.checked ? "true" : "false");
+      fd.append("white_threshold", alphaThreshold.value);
+      fd.append("color_tolerance", alphaTolerance.value);
+      fd.append("feather", alphaFeather.value);
+      fd.append("points", alphaPoints.map((p) => `${p.x},${p.y}`).join(";"));
+      if (!alphaAuto.checked && !alphaPoints.length) {
+        alphaShowMessage("自動除去をONにするか、透明にしたい場所をクリックしてください。", true);
+        return;
+      }
+    }
+    const applyBtn = document.getElementById("tp-alpha-apply");
+    applyBtn.disabled = true;
+    alphaShowMessage(undo ? "補正を取り消しています..." : "透明化を適用しています...");
+    try {
+      const suffix = undo ? "/refine-alpha/undo" : "/refine-alpha";
+      const resp = await fetch(`/api/tpose/jobs/${currentJobId}${suffix}`, { method:"POST", body:fd });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      alphaPoints = [];
+      alphaRenderMarkers();
+      const imageKey = alphaKey.endsWith("_nobg") ? alphaKey : `${alphaKey}_nobg`;
+      alphaImage.src = `/api/tpose/jobs/${currentJobId}/images/${imageKey}.png?t=${Date.now()}`;
+      alphaShowMessage(undo ? "直前の補正を取り消しました。" :
+        `${data.removed_pixels.toLocaleString()}画素を補正しました。`);
+      pollJob(currentJobId);
+    } catch (err) {
+      alphaShowMessage(err.message, true);
+    } finally {
+      applyBtn.disabled = false;
+    }
+  }
+
+  if (alphaDialog) {
+    alphaImage.addEventListener("load", alphaRenderMarkers);
+    alphaImage.addEventListener("click", (event) => {
+      const rect = alphaImage.getBoundingClientRect();
+      alphaPoints.push({
+        x: Math.max(0, Math.min(alphaImage.naturalWidth - 1,
+          Math.round((event.clientX - rect.left) * alphaImage.naturalWidth / rect.width))),
+        y: Math.max(0, Math.min(alphaImage.naturalHeight - 1,
+          Math.round((event.clientY - rect.top) * alphaImage.naturalHeight / rect.height))),
+      });
+      alphaRenderMarkers();
+      alphaShowMessage(`${alphaPoints.length}か所を指定中`);
+    });
+    document.getElementById("tp-alpha-close").addEventListener("click", () => alphaDialog.close());
+    document.getElementById("tp-alpha-clear").addEventListener("click", () => {
+      alphaPoints = []; alphaRenderMarkers(); alphaShowMessage("");
+    });
+    document.getElementById("tp-alpha-apply").addEventListener("click", () => submitAlphaRefine(false));
+    document.getElementById("tp-alpha-undo").addEventListener("click", () => submitAlphaRefine(true));
+    for (const [input, output] of [
+      [alphaThreshold, "tp-alpha-threshold-out"],
+      [alphaTolerance, "tp-alpha-tolerance-out"],
+      [alphaFeather, "tp-alpha-feather-out"],
+    ]) input.addEventListener("input", () => { document.getElementById(output).value = input.value; });
+  }
+
   function tpCreateTile(v) {
     const tile = document.createElement("div");
     // view-tile-square: 正方形出力の全身(左右に広げた腕)を切らずに表示する(style.css参照)
@@ -427,10 +533,18 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     undoOne.style.display = "none";
     undoOne.addEventListener("click", () => applyUndo([v.key]));
     actions.appendChild(undoOne);
+    const refineAlphaBtn = document.createElement("button");
+    refineAlphaBtn.type = "button";
+    refineAlphaBtn.className = "tiny-btn secondary";
+    refineAlphaBtn.textContent = "白残りを修正";
+    refineAlphaBtn.style.display = "none";
+    refineAlphaBtn.addEventListener("click", () =>
+      openAlphaRefine(refineAlphaBtn.dataset.targetKey || v.key));
+    actions.appendChild(refineAlphaBtn);
     tile.appendChild(actions);
     viewsGrid.appendChild(tile);
     const entry = { tile, img, spinner, status, dl, dlNobg, dlUp, dlUpNobg,
-                    actions, undoOne, rev: -1 };
+                    actions, undoOne, refineAlphaBtn, rev: -1 };
     tpTiles.set(v.key, entry);
     return entry;
   }
@@ -451,24 +565,31 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
         t.rev = rev;
       }
       if (v.download_url) {
-        t.dl.href = v.download_url;
+        t.dl.href = `${v.download_url}?v=${rev}`;
         t.dl.style.display = v.status === "done" ? "block" : "none";
       }
       if (v.nobg_download_url) {
-        t.dlNobg.href = v.nobg_download_url;
+        t.dlNobg.href = `${v.nobg_download_url}?v=${rev}`;
         t.dlNobg.style.display = "block";
+        t.refineAlphaBtn.style.display = "inline-block";
+        // 2048透過版がある場合、ユーザーが実際にダウンロードする高解像度版を補正する。
+        t.refineAlphaBtn.dataset.targetKey = v.up_nobg_url
+          ? `${v.key}_2048_nobg` : v.key;
+        t.refineAlphaBtn.textContent = v.up_nobg_url
+          ? "2048透過版の白残りを修正" : "白残りを修正";
       } else {
         t.dlNobg.style.display = "none";
+        t.refineAlphaBtn.style.display = "none";
       }
       if (v.up_download_url) {
-        t.dlUp.href = v.up_download_url;
+        t.dlUp.href = `${v.up_download_url}?v=${rev}`;
         t.dlUp.textContent = `${v.up_size || "2048"} 版をダウンロード`;
         t.dlUp.style.display = "block";
       } else {
         t.dlUp.style.display = "none";
       }
       if (v.up_nobg_download_url) {
-        t.dlUpNobg.href = v.up_nobg_download_url;
+        t.dlUpNobg.href = `${v.up_nobg_download_url}?v=${rev}`;
         t.dlUpNobg.textContent = `${v.up_size || "2048"} 透過版をダウンロード`;
         t.dlUpNobg.style.display = "block";
       } else {
