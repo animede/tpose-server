@@ -44,6 +44,7 @@ DS_VENV=/path/to/venv ./run.sh             # 別の環境を使う
 | vae / text_encoder / tokenizer | — | `Qwen/Qwen-Image` |
 | processor | — | `Qwen/Qwen-Image-Edit-2509` |
 | 背景除去(anime) | — | `skytnt/anime-seg`(`isnetis.onnx`、176MB) |
+| 背景除去(高精度マッティング) | — | `ZhengPeng7/BiRefNet_HR-matting`(約444MB) |
 | アップスケーラ | `DS_UPSCALE_MODEL` で任意のパス | `ai-forever/Real-ESRGAN`(`RealESRGAN_x2.pth`、64MB) |
 
 ## 起動
@@ -96,7 +97,7 @@ VRAM を食い合う**(このサーバのピークは約35GB)。
 | `extra_prompt` | 空 | 追記(爪抑制文より前に差し込まれる) |
 | `recolor` | 空 | 生成直後に走る色調整Editの指示 |
 | `remove_bg` | false | 透過版 `<key>_nobg.png` も作る |
-| `bg_method` | `anime` | `anime`(キャラ向け)/ `rembg`(汎用) |
+| `bg_method` | `anime` | `anime`(キャラ向け) / `birefnet_hr_matting`(高精度・髪対応。純白背景を利用して髪束の内側も透過) / `rembg`(汎用) |
 
 使用例:
 

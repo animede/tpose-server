@@ -106,6 +106,55 @@ body {
   gap: 22px;
 }
 
+.pose-mode-fieldset {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.pose-mode-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pose-mode-buttons label {
+  display: block;
+  cursor: pointer;
+}
+
+.pose-mode-buttons input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pose-mode-buttons span {
+  display: block;
+  padding: 9px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel);
+  color: var(--color-subtext);
+  font-weight: 600;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.pose-mode-buttons input:checked + span {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.pose-mode-buttons input:focus-visible + span {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.pose-mode-hint {
+  margin: 8px 0 0;
+}
+
 .tabs {
   display: flex;
   gap: 4px;

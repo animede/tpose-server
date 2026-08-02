@@ -40,6 +40,26 @@
           <label>入力キャラクター画像
             <input type="file" id="tp-file-input" name="image" accept="image/*" required>
           </label>
+          <fieldset class="pose-mode-fieldset">
+            <legend>ポーズモード</legend>
+            <div class="pose-mode-buttons">
+              <label>
+                <input type="radio" name="tp-pose-mode" value="t_pose" checked>
+                <span>T体型</span>
+              </label>
+              <label>
+                <input type="radio" name="tp-pose-mode" value="a_pose">
+                <span>A体型</span>
+              </label>
+              <label>
+                <input type="radio" name="tp-pose-mode" value="keep">
+                <span>入力画像のポーズを変えない</span>
+              </label>
+            </div>
+            <p class="form-hint pose-mode-hint" id="tp-pose-mode-hint">
+              両腕を肩の高さで水平に広げたTポーズに変換します。
+            </p>
+          </fieldset>
           <fieldset id="tp-view-fieldset" style="border:1px solid #444; border-radius:6px; padding:8px 12px;">
             <legend>生成するビュー(チェックしたものだけ生成)</legend>
             <div id="tp-view-checkboxes" class="form-grid"></div>
@@ -151,16 +171,17 @@
           <label>背景削除の方式
             <select id="tp-bgmethod-input">
               <option value="anime" selected>アニメ・キャラクター向け(anime-segmentation)</option>
+              <option value="birefnet_hr_matting">高精度・髪対応(BiRefNet HR Matting)</option>
               <option value="rembg">汎用(rembg / isnet-general-use)</option>
             </select>
           </label>
           <p class="form-hint">
-            rembg(isnet-general-use)で切り抜きます。白背景版はそのまま残るので、
-            切り抜きが不自然なときは白背景版を使えます。生成完了後にCPUで処理するため
-            GPUの待ちは発生しません(1枚1秒前後)。image-3d は自前で背景除去するため
+            「高精度・髪対応」は髪束の隙間や毛先の半透明を保つ2048pxマッティングです
+            (初回は約444MBのモデル取得が必要)。白背景版はそのまま残るので、
+            切り抜きが不自然なときは白背景版を使えます。image-3d は自前で背景除去するため
             必須ではありません。
           </p>
-          <button type="submit" class="primary-btn" id="tp-generate-btn">Tポーズ生成</button>
+          <button type="submit" class="primary-btn" id="tp-generate-btn">T体型で生成</button>
           <p id="tp-error-message" class="form-error hidden"></p>
           <p id="tp-status-message" class="status-message hidden"></p>
           <div id="tp-progress" class="progress-bar-wrap hidden">

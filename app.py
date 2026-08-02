@@ -92,13 +92,14 @@ def unload(req: UnloadRequest):
 
 
 # ============================================================================
-# 背景除去(GPU不使用。rembg / anime-segmentation とも CPU/ONNX)
+# 背景除去(rembg / animeはCPU、BiRefNet HR Mattingは既定GPU)
 # ============================================================================
 @app.post("/api/remove_bg")
 async def remove_bg(image: UploadFile = File(...), method: str = Form(bg_mod.DEFAULT_BG_METHOD)):
     """任意画像の背景を除去して RGBA PNG を返す(Tポーズ生成とは独立の補助API)。
 
-    method: "rembg"(既定、汎用)| "anime"(アニメ・イラスト・キャラクター向け)
+    method: "rembg"(汎用)| "anime"(アニメ向け)|
+      "birefnet_hr_matting"(髪・毛先向け高精度マッティング)
     """
     try:
         src = _open_upload_image(await image.read())
@@ -144,4 +145,7 @@ app.mount("/static", NoCacheStaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
 async def index():
-    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(STATIC_DIR, "index.html"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )

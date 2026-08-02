@@ -288,6 +288,8 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   const bodyPreset = document.getElementById("tp-body-preset");
   const extraInput = document.getElementById("tp-extra-input");
   const generateBtn = document.getElementById("tp-generate-btn");
+  const poseModeInputs = Array.from(document.querySelectorAll('input[name="tp-pose-mode"]'));
+  const poseModeHint = document.getElementById("tp-pose-mode-hint");
   const errorEl = document.getElementById("tp-error-message");
   const statusEl = document.getElementById("tp-status-message");
   const progressWrap = document.getElementById("tp-progress");
@@ -310,6 +312,21 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
   let busy = false;
   let totalViewCount = 4;
   let currentJobId = null;   // 生成後の編集(/edit・/undo)の対象ジョブ
+
+  const POSE_MODE_UI = {
+    t_pose: ["T体型で生成", "両腕を肩の高さで水平に広げたTポーズに変換します。"],
+    a_pose: ["A体型で生成", "両腕を斜め下へ自然に広げたAポーズに変換します。"],
+    keep: ["入力ポーズのまま生成", "入力画像の体・腕・脚のポーズを変えずに、各方向のビューを生成します。"],
+  };
+  const selectedPoseMode = () =>
+    (poseModeInputs.find((input) => input.checked) || {}).value || "t_pose";
+  const updatePoseModeUi = () => {
+    const [buttonText, hintText] = POSE_MODE_UI[selectedPoseMode()] || POSE_MODE_UI.t_pose;
+    generateBtn.textContent = buttonText;
+    if (poseModeHint) poseModeHint.textContent = hintText;
+  };
+  poseModeInputs.forEach((input) => input.addEventListener("change", updatePoseModeUi));
+  updatePoseModeUi();
 
   const showError = (msg) => {
     errorEl.textContent = msg;
@@ -828,6 +845,7 @@ document.getElementById("unload-all-btn").addEventListener("click", () => unload
     fd.append("image", fileInput.files[0]);
     fd.append("seed", seedInput.value || "0");
     fd.append("subject", subjectInput.value);
+    fd.append("pose_mode", selectedPoseMode());
     if (removeBgInput.checked) fd.append("remove_bg", "true");
     // 背景除去の方式(core/bg.py)。Tポーズはキャラクターが対象なので既定はアニメ向け
     fd.append("bg_method", (document.getElementById("tp-bgmethod-input") || {}).value || "anime");

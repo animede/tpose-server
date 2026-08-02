@@ -38,6 +38,7 @@ from tpose.prompts import (
     CLAWS_MODES,
     NEGATIVE_PROMPT,
     PALMS_MODES,
+    POSE_MODES,
     SUBJECT_MODES,
     TAIL_PRESETS,
     VIEW_BY_KEY,
@@ -276,6 +277,35 @@ def _cutout_rgba(src_rgb: Image.Image, rembg_rgba: Image.Image) -> Image.Image:
     return out
 
 
+def _finalize_cutout(src_rgb: Image.Image, model_rgba: Image.Image, method: str) -> Image.Image:
+    """方式に応じて最終RGBAを作る。
+
+    BiRefNet Mattingは髪束の隙間や毛先をソフトアルファで表すため、従来の
+    最大連結成分化・穴埋め・二値化を適用しない。RGBだけ元画像から取り直す。
+    """
+    if method == "birefnet_hr_matting":
+        import numpy as np
+        from scipy import ndimage
+
+        # BiRefNetは毛先のソフトアルファには強い一方、背面・側面の長い髪を一つの
+        # 前景塊として捉え、髪束の間に見える純白背景まで不透明にする場合がある。
+        # Tポーズ生成画像は背景が純白なので、RGBの「純白からの距離」を第2の
+        # アルファ上限として重ねる。単純な輝度閾値では白髪も消えるため、RGB三軸の
+        # ユークリッド距離を使い、距離5以下だけを完全透過、28までを滑らかに遷移
+        # させる。実画像(front/back/left/right)で髪本体を維持しつつ束間が抜ける
+        # ことを確認済み。0.6pxのぼかしはアンチエイリアス境界の段差を防ぐ。
+        rgb = np.asarray(src_rgb.convert("RGB"), dtype=np.float32)
+        model_alpha = np.asarray(model_rgba.getchannel("A"), dtype=np.float32)
+        white_distance = np.sqrt(np.square(255.0 - rgb).sum(axis=2))
+        white_factor = np.clip((white_distance - 5.0) / (28.0 - 5.0), 0.0, 1.0)
+        white_factor = ndimage.gaussian_filter(white_factor, 0.6)
+        refined_alpha = np.minimum(model_alpha, white_factor * 255.0).astype(np.uint8)
+        out = src_rgb.convert("RGBA")
+        out.putalpha(Image.fromarray(refined_alpha, mode="L"))
+        return out
+    return _cutout_rgba(src_rgb, model_rgba)
+
+
 def _remove_bg_pass(job_id: str, job_dir: str, keys: list, method: str = "rembg") -> None:
     """生成済み各ビューの背景を除去し `<key>_nobg.png`(RGBA)として保存する。
 
@@ -295,7 +325,8 @@ def _remove_bg_pass(job_id: str, job_dir: str, keys: list, method: str = "rembg"
         try:
             with Image.open(src) as im:
                 src_rgb = im.convert("RGB")
-                rgba = _cutout_rgba(src_rgb, remove_background(src_rgb, method=method))
+                model_rgba = remove_background(src_rgb, method=method)
+                rgba = _finalize_cutout(src_rgb, model_rgba, method)
             rgba.save(os.path.join(job_dir, f"{key}_nobg.png"))
         except Exception as exc:  # noqa: BLE001
             traceback.print_exc()
@@ -382,6 +413,7 @@ def _run_job(job_id: str, input_path: str, tail_ref_path: Optional[str], seed: i
                 costume=params.get("costume", ""),
                 extra=params["extra_prompt"],
                 first_stage=first_stage,
+                pose_mode=params.get("pose_mode", "t_pose"),
             )
             if mirrored:
                 prompt_note = prompt + "  ※参照画像を鏡像にして左向きで生成し、出力を左右反転"
@@ -505,6 +537,7 @@ async def generate(
     seed: int = Form(0),
     views: str = Form(""),
     subject: str = Form("auto"),
+    pose_mode: str = Form("t_pose"),
     palms: str = Form("forward"),
     paw_pads: str = Form("auto"),
     claws: str = Form("none"),
@@ -578,6 +611,11 @@ async def generate(
             status_code=400,
             detail=f"subject は {list(SUBJECT_MODES)} のいずれかです。",
         )
+    if pose_mode not in POSE_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"pose_mode は {list(POSE_MODES)} のいずれかです。",
+        )
 
     with current_job_lock:
         if current_job_id is not None:
@@ -619,6 +657,7 @@ async def generate(
         "bg_method": bg_method,
         "recolor": recolor,
         "subject": subject,
+        "pose_mode": pose_mode,
         "palms": palms,
         "paw_pads": paw_pads,
         "claws": claws,
@@ -1056,7 +1095,8 @@ def _run_upscale(job_id: str, keys: list, target: int):
                 try:
                     with Image.open(path) as im:
                         rgb = im.convert("RGB")
-                        rgba = _cutout_rgba(rgb, remove_background(rgb, method=method))
+                        model_rgba = remove_background(rgb, method=method)
+                        rgba = _finalize_cutout(rgb, model_rgba, method)
                     rgba.save(os.path.join(job_dir, f"{key}_2048_nobg.png"))
                 except Exception as exc:  # noqa: BLE001
                     traceback.print_exc()
